@@ -1,0 +1,17 @@
+# 忽略编译器生成的构建目录
+out/
+build/
+.vs/
+x64/
+
+# 忽略第三方库目录（因为别人可以通过 vcpkg 重新安装）
+vcpkg/
+onnxruntime-win-x64/
+
+# 忽略大型模型权重文件
+*.onnx
+*.pt
+
+# 忽略一些临时文件
+*.user
+*.log
