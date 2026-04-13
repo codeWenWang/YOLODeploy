@@ -64,18 +64,56 @@ cv::Mat YoloDetector::preprocess(const cv::Mat& inputImg) {
 }
 
 // ---------------------------------------------------------
-// 暂时为空的 Process 函数
+// Process 函数
 // ---------------------------------------------------------
 void YoloDetector::process(cv::Mat& frame) {
-    // 1. 预处理
+    // ==========================================
+    // 第一步：预处理 (Pre-processing)
+    // ==========================================
     cv::Mat inputBlob = preprocess(frame);
 
-    // 测试打印一下预处理后的维度
-    std::cout << "预处理完成! Blob 尺寸: ";
-    for (int i = 0; i < inputBlob.dims; ++i) {
-        std::cout << inputBlob.size[i] << " ";
+    // ==========================================
+    // 第二步：模型推理 (Inference)
+    // ==========================================
+    // 1. 定义输入的维度和数据大小
+    std::vector<int64_t> inputDims = { 1, 3, 640, 640 };
+    size_t inputTensorSize = 1 * 3 * 640 * 640;
+
+    // 2. 将 OpenCV 的 Mat 数据“绑定”为 ONNX Runtime 认识的张量 (Tensor)
+    // 注意：这里没有复制数据，只是用指针指了过去，所以速度极快！
+    Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
+        memoryInfo,
+        (float*)inputBlob.data,
+        inputTensorSize,
+        inputDims.data(),
+        inputDims.size()
+    );
+
+    // 3. 定义 YOLOv8 标准的输入输出节点名称
+    const char* inputNames[] = { "images" };
+    const char* outputNames[] = { "output0" };
+
+    // 4. 执行核心运算！(这行代码运行期间，你的 CPU 会疯狂做矩阵乘法)
+    std::vector<Ort::Value> outputTensors = session->Run(
+        Ort::RunOptions{ nullptr },
+        inputNames,
+        &inputTensor,
+        1,  // 我们有 1 个输入
+        outputNames,
+        1   // 我们期待 1 个输出
+    );
+
+    // 5. 获取输出结果的数据指针和维度信息
+    float* outputData = outputTensors[0].GetTensorMutableData<float>();
+    auto outputInfo = outputTensors[0].GetTensorTypeAndShapeInfo();
+    std::vector<int64_t> outputDims = outputInfo.GetShape();
+
+    // 打印测试一下
+    std::cout << "推理完成! 模型输出的神秘矩阵尺寸: ";
+    for (int i = 0; i < outputDims.size(); ++i) {
+        std::cout << outputDims[i] << " ";
     }
     std::cout << std::endl;
 
-    // (推理和后处理我们下一步再写...)
+    // (第三步后处理我们稍后再写...)
 }
