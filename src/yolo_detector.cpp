@@ -64,56 +64,102 @@ cv::Mat YoloDetector::preprocess(const cv::Mat& inputImg) {
 }
 
 // ---------------------------------------------------------
-// Process 函数
+// 4. 后处理主函数 (大浪淘沙)
 // ---------------------------------------------------------
-void YoloDetector::process(cv::Mat& frame) {
-    // ==========================================
-    // 第一步：预处理 (Pre-processing)
-    // ==========================================
+std::vector<Detection> YoloDetector::postprocess(float* outputData, const cv::Size& originalImageSize) {
+    std::vector<int> classIds;
+    std::vector<float> confidences;
+    std::vector<cv::Rect> boxes;
+
+    // YOLOv8 的输出形状是 [1, 84, 8400]
+    // 在内存中，它按通道存储：先是 8400 个 x，然后 8400 个 y...
+    int dimensions = 84;
+    int rows = 8400;
+
+    // 为了计算还原比例，我们要知道原图是怎么缩放到 640 的
+    float x_factor = (float)originalImageSize.width / inputSize.width;
+    float y_factor = (float)originalImageSize.height / inputSize.height;
+    // 真实的缩放比例是宽高中的较小值（Letterbox 规则）
+    float scale = std::min(x_factor, y_factor);
+
+    // 第一重过滤：遍历 8400 个网格点
+    for (int i = 0; i < rows; ++i) {
+        // 找这个框的 80 个类别中，概率最高的那一个
+        float maxClassConf = 0.0f;
+        int maxClassId = 0;
+
+        for (int c = 0; c < 80; ++c) {
+            // 定位到对应的内存地址 (通道 c+4, 偏移 i)
+            float conf = outputData[(c + 4) * rows + i];
+            if (conf > maxClassConf) {
+                maxClassConf = conf;
+                maxClassId = c;
+            }
+        }
+
+        // 如果最高概率都达不到阈值，直接跳过（扔掉）
+        if (maxClassConf > confThreshold) {
+            // 提取该框的坐标 (前面 4 个通道)
+            float cx = outputData[0 * rows + i];
+            float cy = outputData[1 * rows + i];
+            float w = outputData[2 * rows + i];
+            float h = outputData[3 * rows + i];
+
+            // 把中心点宽高，转成 OpenCV 喜欢的左上角宽高，并反推回原始像素尺寸
+            int left = std::round((cx - 0.5 * w) * scale);
+            int top = std::round((cy - 0.5 * h) * scale);
+            int width = std::round(w * scale);
+            int height = std::round(h * scale);
+
+            // 保存入围者的数据
+            boxes.push_back(cv::Rect(left, top, width, height));
+            confidences.push_back(maxClassConf);
+            classIds.push_back(maxClassId);
+        }
+    }
+
+    // 第二重过滤：执行 NMS (非极大值抑制)，剔除重叠的重复框
+    std::vector<int> nmsResult;
+    cv::dnn::NMSBoxes(boxes, confidences, confThreshold, nmsThreshold, nmsResult);
+
+    // 把最终幸存下来的框打包输出
+    std::vector<Detection> finalDetections;
+    for (int idx : nmsResult) {
+        Detection d;
+        d.box = boxes[idx];
+        d.confidence = confidences[idx];
+        d.class_id = classIds[idx];
+        finalDetections.push_back(d);
+    }
+
+    return finalDetections;
+}
+
+
+// ---------------------------------------------------------
+// 5. 更新后的完整 Process 函数
+// ---------------------------------------------------------
+std::vector<Detection> YoloDetector::process(cv::Mat& frame) {
+    // 1. 预处理
     cv::Mat inputBlob = preprocess(frame);
 
-    // ==========================================
-    // 第二步：模型推理 (Inference)
-    // ==========================================
-    // 1. 定义输入的维度和数据大小
+    // 2. 推理
     std::vector<int64_t> inputDims = { 1, 3, 640, 640 };
     size_t inputTensorSize = 1 * 3 * 640 * 640;
-
-    // 2. 将 OpenCV 的 Mat 数据“绑定”为 ONNX Runtime 认识的张量 (Tensor)
-    // 注意：这里没有复制数据，只是用指针指了过去，所以速度极快！
     Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
-        memoryInfo,
-        (float*)inputBlob.data,
-        inputTensorSize,
-        inputDims.data(),
-        inputDims.size()
+        memoryInfo, (float*)inputBlob.data, inputTensorSize, inputDims.data(), inputDims.size()
     );
 
-    // 3. 定义 YOLOv8 标准的输入输出节点名称
     const char* inputNames[] = { "images" };
     const char* outputNames[] = { "output0" };
 
-    // 4. 执行核心运算！(这行代码运行期间，你的 CPU 会疯狂做矩阵乘法)
     std::vector<Ort::Value> outputTensors = session->Run(
-        Ort::RunOptions{ nullptr },
-        inputNames,
-        &inputTensor,
-        1,  // 我们有 1 个输入
-        outputNames,
-        1   // 我们期待 1 个输出
+        Ort::RunOptions{ nullptr }, inputNames, &inputTensor, 1, outputNames, 1
     );
 
-    // 5. 获取输出结果的数据指针和维度信息
     float* outputData = outputTensors[0].GetTensorMutableData<float>();
-    auto outputInfo = outputTensors[0].GetTensorTypeAndShapeInfo();
-    std::vector<int64_t> outputDims = outputInfo.GetShape();
 
-    // 打印测试一下
-    std::cout << "推理完成! 模型输出的神秘矩阵尺寸: ";
-    for (int i = 0; i < outputDims.size(); ++i) {
-        std::cout << outputDims[i] << " ";
-    }
-    std::cout << std::endl;
-
-    // (第三步后处理我们稍后再写...)
+    // 3. 后处理（提取结果并返回）
+    cv::Size originalImageSize(frame.cols, frame.rows);
+    return postprocess(outputData, originalImageSize);
 }
