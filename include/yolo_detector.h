@@ -1,23 +1,23 @@
-#pragma once
+ï»¿#pragma once
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <onnxruntime_cxx_api.h>
-#include "types.h" // ÒıÈëÊı¾İ½á¹¹
+#include "types.h" // å¼•å…¥æ•°æ®ç»“æ„
 
 class YoloDetector {
 public:
     YoloDetector(const std::string& modelPath, bool isGPU = false);
 
-    // °Ñ process µÄ·µ»ØÖµ¸ÄÎª std::vector<Detection>
+    // æŠŠ process çš„è¿”å›å€¼æ”¹ä¸º std::vector<Detection>
     std::vector<Detection> process(cv::Mat& frame);
 
 private:
     cv::Mat preprocess(const cv::Mat& inputImg);
     cv::Mat letterbox(const cv::Mat& source, const cv::Size& targetSize);
 
-    // ======== ĞÂÔöµÄºó´¦Àíº¯Êı ========
-    // ÊäÈë£ºÄ£ĞÍÍÂ³öµÄ float Êı×é£» 
-    // originalImageSize: Ô­Í¼³ß´ç (ÓÃÀ´°Ñ×ø±ê´Ó 640x640 »¹Ô­»ØÈ¥)
+    // ======== æ–°å¢çš„åå¤„ç†å‡½æ•° ========
+    // è¾“å…¥ï¼šæ¨¡å‹åå‡ºçš„ float æ•°ç»„ï¼› 
+    // originalImageSize: åŸå›¾å°ºå¯¸ (ç”¨æ¥æŠŠåæ ‡ä» 640x640 è¿˜åŸå›å»)
     std::vector<Detection> postprocess(float* outputData, const cv::Size& originalImageSize);
 
     Ort::Env env;
@@ -26,7 +26,7 @@ private:
 
     cv::Size inputSize = cv::Size(640, 640);
 
-    // Á½¸öºËĞÄãĞÖµ
-    float confThreshold = 0.4f; // µ÷ÕûÖÃĞÅ¶ÈÓÃÓÚ²âÊÔ
-    float nmsThreshold = 0.20f;  // ÖØµş¶È´óÓÚnmsThresholdµÄ¿òÅĞ¶¨ÎªÖØ¸´
+    // ä¸¤ä¸ªæ ¸å¿ƒé˜ˆå€¼
+    float confThreshold = 0.4f; // è°ƒæ•´ç½®ä¿¡åº¦ç”¨äºæµ‹è¯•
+    float nmsThreshold = 0.20f;  // é‡å åº¦å¤§äºnmsThresholdçš„æ¡†åˆ¤å®šä¸ºé‡å¤
 };

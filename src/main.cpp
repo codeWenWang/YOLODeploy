@@ -1,88 +1,16 @@
-#include <iostream>
-#include <opencv2/opencv.hpp>
-#include "yolo_detector.h"
+ï»¿#include "mainwindow.h"
+#include <QApplication>
 
-// 1. ×Öµä£º±ê×¢µÄÀà±ğ (¼ÓÉÏ Unknown ·ÀÖ¹Ä£ĞÍÊä³öµÚ2¸öÀà±ğÊ±Ô½½ç)
-const std::vector<std::string> MY_CLASSES = { "Unknown", "Shared_Bike" };
+int main(int argc, char* argv[]) {
+    // 1. åˆå§‹åŒ– QT åº”ç”¨ç¨‹åºç¯å¢ƒ
+    QApplication a(argc, argv);
 
-int main() {
-    // 2. ¼ÓÔØÑµÁ·µÄĞÂÄ£ĞÍ
-    std::string modelPath = "E:/CourseProjectC/YOLODeploy/models/best.onnx";
-    std::cout << "ÕıÔÚ¼ÓÔØ×¨Êô¹²Ïíµ¥³µ¼ì²âÄ£ĞÍ..." << std::endl;
-    YoloDetector detector(modelPath);
+    // 2. å®ä¾‹åŒ–ä½ è®¾è®¡çš„ä¸»çª—å£
+    MainWindow w;
 
-    // 3. ¶ÁÈ¡Ğ£Ô°²âÊÔÕÕÆ¬
-    std::string imagePath = "E:/CourseProjectC/YOLODeploy/data/test_pic1.jpg";
-    cv::Mat frame = cv::imread(imagePath);
-    if (frame.empty()) {
-        std::cerr << "Í¼Æ¬ÕÒ²»µ½£¬Çë¼ì²éÂ·¾¶£¡" << std::endl;
-        return -1;
-    }
+    // 3. æ˜¾ç¤ºçª—å£
+    w.show();
 
-    // 4. Ö´ĞĞºËĞÄÍÆÀí
-    std::cout << "¿ªÊ¼ÍÆÀí..." << std::endl;
-    std::vector<Detection> results = detector.process(frame);
-    std::cout << "¼ì²âµ½ " << results.size() << " Á¾¹²Ïíµ¥³µ£¡" << std::endl;
-
-    // 5. ±éÀú½á¹û²¢»­¿ò
-    // ==========================================================
-    // === ¸ßÇåäÖÈ¾ÖØ¹¹£ºÏÈ¸ßÖÊÁ¿Ëõ·ÅÍ¼Æ¬£¬ÔÙ»­¿ò£¡ ===
-    // ==========================================================
-
-    // (1) ¼ÆËãËõ·Å±ÈÀı (»ùÓÚÆÁÄ»°²È«³ß´ç 1280x720)
-    int maxWindowWidth = 1280;
-    int maxWindowHeight = 720;
-    double scaleX = (double)maxWindowWidth / frame.cols;
-    double scaleY = (double)maxWindowHeight / frame.rows;
-    double scale = std::min(scaleX, scaleY);
-    if (scale > 1.0) scale = 1.0;
-
-    // (2) ÎïÀíËõ·ÅÔ­Í¼ (Ê¹ÓÃ INTER_AREA Ëã·¨£¬ÕâÊÇÍ¼Æ¬ËõĞ¡²»Ä£ºıµÄ¹Ø¼ü£¡)
-    cv::Mat displayFrame;
-    int finalWidth = (int)(frame.cols * scale);
-    int finalHeight = (int)(frame.rows * scale);
-    cv::resize(frame, displayFrame, cv::Size(finalWidth, finalHeight), 0, 0, cv::INTER_AREA);
-
-    // (3) ±éÀú½á¹û£¬ÔÚ¡¾ËõĞ¡ºóµÄ¸ßÇåÍ¼¡¿ÉÏ»­¿ò
-    for (const auto& det : results) {
-        std::string className = (det.class_id >= 0 && det.class_id < MY_CLASSES.size())
-            ? MY_CLASSES[det.class_id] : "Unknown";
-        std::string label = cv::format("%s: %.2f", className.c_str(), det.confidence);
-
-        // --- ºËĞÄ£º°Ñ¿òµÄ×ø±êÒ²µÈ±ÈÀıËõĞ¡ ---
-        int boxX = std::round(det.box.x * scale);
-        int boxY = std::round(det.box.y * scale);
-        int boxW = std::round(det.box.width * scale);
-        int boxH = std::round(det.box.height * scale);
-        cv::Rect scaledBox(boxX, boxY, boxW, boxH);
-
-        // ×ÖÌå´óĞ¡ÏÖÔÚ¿ÉÒÔ¹Ì¶¨Ò»¸öÊæÊÊµÄÖµÁË£¬ÒòÎª»­²¼ÒÑ¾­±ê×¼»¯ÁË
-        double fontScale = 0.30;
-        int thickness = 1;
-
-        // »­ÂÌÉ«Ä¿±ê¿ò
-        cv::rectangle(displayFrame, scaledBox, cv::Scalar(0, 255, 0), 2);
-
-        // »æÖÆÎÄ×Ö±³¾°°åºÍÎÄ×Ö
-        int baseLine;
-        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseLine);
-        int top = std::max(scaledBox.y, labelSize.height + 10);
-
-        cv::rectangle(displayFrame,
-            cv::Point(scaledBox.x, top - labelSize.height - 5),
-            cv::Point(scaledBox.x + labelSize.width + 5, top + baseLine + 5),
-            cv::Scalar(0, 255, 0), cv::FILLED);
-
-        cv::putText(displayFrame, label, cv::Point(scaledBox.x + 2, top),
-            cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 0, 0), thickness);
-    }
-
-    // (4) ÏÔÊ¾×îÖÕµÄ¸ßÇå½á¹û
-    // ×¢Òâ£º²»ÔÙÊ¹ÓÃ WINDOW_NORMAL£¬ÒòÎªÍ¼Æ¬ÒÑ¾­ÊÇÍêÃÀ³ß´çÁË£¬Ö±½ÓÓÃ AUTOSIZE ×îÇåÎú
-    cv::namedWindow("Campus Smart Parking Detection", cv::WINDOW_AUTOSIZE);
-    cv::imshow("Campus Smart Parking Detection", displayFrame);
-    cv::waitKey(0);
-    cv::destroyAllWindows();
-
-    return 0;
+    // 4. è¿›å…¥ QT çš„äº‹ä»¶å¾ªç¯ï¼ˆç¨‹åºä¼šåœåœ¨è¿™é‡Œï¼Œç­‰å¾…ç”¨æˆ·ç‚¹å‡»æŒ‰é’®ï¼‰
+    return a.exec();
 }

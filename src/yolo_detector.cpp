@@ -175,16 +175,6 @@ std::vector<Detection> YoloDetector::process(cv::Mat& frame) {
         Ort::RunOptions{ nullptr }, inputNames, &inputTensor, 1, outputNames, 1
     );
 
-    // ?????? 新增：获取并打印 ONNX 输出张量的真实形状
-    Ort::TensorTypeAndShapeInfo shapeInfo = outputTensors[0].GetTensorTypeAndShapeInfo();
-    std::vector<int64_t> outputShape = shapeInfo.GetShape();
-    std::cout << "【形状侦测】模型输出的张量维度为: ";
-    for (size_t i = 0; i < outputShape.size(); i++) {
-        std::cout << outputShape[i] << " ";
-    }
-    std::cout << std::endl;
-    // ?????? 结束
-
     float* outputData = outputTensors[0].GetTensorMutableData<float>();
 
     // 3. 后处理（提取结果并返回）
