@@ -18,7 +18,7 @@ include_directories(include)
 
 # 4. 编译可执行文件时，带上 src 目录下的相对路径
 add_executable(${PROJECT_NAME} 
-    src/main.cpp 
+    src/main.cpp
     src/yolo_detector.cpp
     # 以后你在 src 里写了新的 .cpp，都要加到这里
 )

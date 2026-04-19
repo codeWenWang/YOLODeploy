@@ -27,6 +27,6 @@ private:
     cv::Size inputSize = cv::Size(640, 640);
 
     // 两个核心阈值
-    float confThreshold = 0.50f; // 置信度低于 50% 的直接扔掉
-    float nmsThreshold = 0.45f;  // 重叠度大于 45% 的框判定为重复
+    float confThreshold = 0.4f; // 调整置信度用于测试
+    float nmsThreshold = 0.20f;  // 重叠度大于nmsThreshold的框判定为重复
 };

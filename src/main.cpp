@@ -2,70 +2,85 @@
 #include <opencv2/opencv.hpp>
 #include "yolo_detector.h"
 
-const std::vector<std::string> COCO_CLASSES = {
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-    "hair drier", "toothbrush"
-};
-
+// 1. 字典：标注的类别 (加上 Unknown 防止模型输出第2个类别时越界)
+const std::vector<std::string> MY_CLASSES = { "Unknown", "Shared_Bike" };
 
 int main() {
-    // 1. 加载模型
-    std::string modelPath = "E:/CourseProjectC/YOLODeploy/models/yolov8n.onnx";
-    std::cout << "正在初始化 YOLOv8 检测器..." << std::endl;
+    // 2. 加载训练的新模型
+    std::string modelPath = "E:/CourseProjectC/YOLODeploy/models/best.onnx";
+    std::cout << "正在加载专属共享单车检测模型..." << std::endl;
     YoloDetector detector(modelPath);
 
-    // 2. 读取一张真实的测试图片
-    std::string imagePath = "E:/CourseProjectC/YOLODeploy/data/test2.jpg";
+    // 3. 读取校园测试照片
+    std::string imagePath = "E:/CourseProjectC/YOLODeploy/data/test_pic1.jpg";
     cv::Mat frame = cv::imread(imagePath);
-
     if (frame.empty()) {
-        std::cerr << "错误: 找不到图片，请检查路径 " << imagePath << std::endl;
+        std::cerr << "图片找不到，请检查路径！" << std::endl;
         return -1;
     }
 
-    std::cout << "图片读取成功! 尺寸: " << frame.cols << "x" << frame.rows << std::endl;
-
-    // 3. 执行核心推理，获取检测结果
+    // 4. 执行核心推理
+    std::cout << "开始推理..." << std::endl;
     std::vector<Detection> results = detector.process(frame);
-    std::cout << "共检测到 " << results.size() << " 个目标。" << std::endl;
+    std::cout << "检测到 " << results.size() << " 辆共享单车！" << std::endl;
 
-    // ==========================================
-    // 4. 可视化渲染 (把框画到原图上)
-    // ==========================================
+    // 5. 遍历结果并画框
+    // ==========================================================
+    // === 高清渲染重构：先高质量缩放图片，再画框！ ===
+    // ==========================================================
+
+    // (1) 计算缩放比例 (基于屏幕安全尺寸 1280x720)
+    int maxWindowWidth = 1280;
+    int maxWindowHeight = 720;
+    double scaleX = (double)maxWindowWidth / frame.cols;
+    double scaleY = (double)maxWindowHeight / frame.rows;
+    double scale = std::min(scaleX, scaleY);
+    if (scale > 1.0) scale = 1.0;
+
+    // (2) 物理缩放原图 (使用 INTER_AREA 算法，这是图片缩小不模糊的关键！)
+    cv::Mat displayFrame;
+    int finalWidth = (int)(frame.cols * scale);
+    int finalHeight = (int)(frame.rows * scale);
+    cv::resize(frame, displayFrame, cv::Size(finalWidth, finalHeight), 0, 0, cv::INTER_AREA);
+
+    // (3) 遍历结果，在【缩小后的高清图】上画框
     for (const auto& det : results) {
-        // 画出矩形框 (绿色)
-        cv::rectangle(frame, det.box, cv::Scalar(0, 255, 0), 2);
+        std::string className = (det.class_id >= 0 && det.class_id < MY_CLASSES.size())
+            ? MY_CLASSES[det.class_id] : "Unknown";
+        std::string label = cv::format("%s: %.2f", className.c_str(), det.confidence);
 
-        // 去字典里查这个 ID 对应的单词！
-        std::string className = COCO_CLASSES[det.class_id];
+        // --- 核心：把框的坐标也等比例缩小 ---
+        int boxX = std::round(det.box.x * scale);
+        int boxY = std::round(det.box.y * scale);
+        int boxW = std::round(det.box.width * scale);
+        int boxH = std::round(det.box.height * scale);
+        cv::Rect scaledBox(boxX, boxY, boxW, boxH);
 
-        // 准备标签文字 (例如: person: 85%)
-        std::string label = className + ": " + std::to_string((int)(det.confidence * 100)) + "%";
+        // 字体大小现在可以固定一个舒适的值了，因为画布已经标准化了
+        double fontScale = 0.30;
+        int thickness = 1;
 
+        // 画绿色目标框
+        cv::rectangle(displayFrame, scaledBox, cv::Scalar(0, 255, 0), 2);
+
+        // 绘制文字背景板和文字
         int baseLine;
-        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-        int top = std::max(det.box.y, labelSize.height);
+        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseLine);
+        int top = std::max(scaledBox.y, labelSize.height + 10);
 
-        cv::rectangle(frame, cv::Point(det.box.x, top - labelSize.height),
-            cv::Point(det.box.x + labelSize.width, top + baseLine),
-            cv::Scalar(0, 0, 0), cv::FILLED);
+        cv::rectangle(displayFrame,
+            cv::Point(scaledBox.x, top - labelSize.height - 5),
+            cv::Point(scaledBox.x + labelSize.width + 5, top + baseLine + 5),
+            cv::Scalar(0, 255, 0), cv::FILLED);
 
-        cv::putText(frame, label, cv::Point(det.box.x, top),
-            cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+        cv::putText(displayFrame, label, cv::Point(scaledBox.x + 2, top),
+            cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 0, 0), thickness);
     }
 
-    // 5. 显示最终结果图
-    cv::imshow("YOLOv8 C++ Deployment Result", frame);
-
-    // 等待用户按任意键后关闭窗口
-    std::cout << "按任意键退出..." << std::endl;
+    // (4) 显示最终的高清结果
+    // 注意：不再使用 WINDOW_NORMAL，因为图片已经是完美尺寸了，直接用 AUTOSIZE 最清晰
+    cv::namedWindow("Campus Smart Parking Detection", cv::WINDOW_AUTOSIZE);
+    cv::imshow("Campus Smart Parking Detection", displayFrame);
     cv::waitKey(0);
     cv::destroyAllWindows();
 

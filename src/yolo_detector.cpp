@@ -71,25 +71,30 @@ std::vector<Detection> YoloDetector::postprocess(float* outputData, const cv::Si
     std::vector<float> confidences;
     std::vector<cv::Rect> boxes;
 
-    // YOLOv8 的输出形状是 [1, 84, 8400]
-    // 在内存中，它按通道存储：先是 8400 个 x，然后 8400 个 y...
-    int dimensions = 84;
-    int rows = 8400;
+    // === [1] 模型结构定义 ===
+    int classes = 2;              // 类别数量
+    int dimensions = 6;           // 张量维度
+    int rows = 8400;              // YOLOv8 默认输出 8400 个预测框
 
-    // 为了计算还原比例，我们要知道原图是怎么缩放到 640 的
-    float x_factor = (float)originalImageSize.width / inputSize.width;
-    float y_factor = (float)originalImageSize.height / inputSize.height;
-    // 真实的缩放比例是宽高中的较小值（Letterbox 规则）
-    float scale = std::min(x_factor, y_factor);
+    // === [2] 计算 Letterbox 逆向缩放系数与黑边偏移量 ===
+    float rx = (float)inputSize.width / originalImageSize.width;
+    float ry = (float)inputSize.height / originalImageSize.height;
+    float r = std::min(rx, ry); // 真实的缩放比例 (保持长宽比)
 
-    // 第一重过滤：遍历 8400 个网格点
+    // 计算预处理时添加的黑边大小 (除以2是因为两边对称补黑边)
+    float pad_w = (inputSize.width - originalImageSize.width * r) / 2.0f;
+    float pad_h = (inputSize.height - originalImageSize.height * r) / 2.0f;
+
+    // [调试专用]：用于记录全场最高分
+    float absoluteMaxConf = 0.0f;
+
+    // === [3] 遍历所有 8400 个预测结果 ===
     for (int i = 0; i < rows; ++i) {
-        // 找这个框的 80 个类别中，概率最高的那一个
         float maxClassConf = 0.0f;
         int maxClassId = 0;
 
-        for (int c = 0; c < 80; ++c) {
-            // 定位到对应的内存地址 (通道 c+4, 偏移 i)
+        // 寻找当前框中概率最高的类别
+        for (int c = 0; c < classes; ++c) {
             float conf = outputData[(c + 4) * rows + i];
             if (conf > maxClassConf) {
                 maxClassConf = conf;
@@ -97,32 +102,45 @@ std::vector<Detection> YoloDetector::postprocess(float* outputData, const cv::Si
             }
         }
 
-        // 如果最高概率都达不到阈值，直接跳过（扔掉）
+        // [调试专用]：更新全图最高置信度
+        if (maxClassConf > absoluteMaxConf) {
+            absoluteMaxConf = maxClassConf;
+        }
+
+        // 只有当预测概率大于我们在 .h 里设置的及格线时，才保留这个框
         if (maxClassConf > confThreshold) {
-            // 提取该框的坐标 (前面 4 个通道)
             float cx = outputData[0 * rows + i];
             float cy = outputData[1 * rows + i];
             float w = outputData[2 * rows + i];
             float h = outputData[3 * rows + i];
 
-            // 把中心点宽高，转成 OpenCV 喜欢的左上角宽高，并反推回原始像素尺寸
-            int left = std::round((cx - 0.5 * w) * scale);
-            int top = std::round((cy - 0.5 * h) * scale);
-            int width = std::round(w * scale);
-            int height = std::round(h * scale);
+            // === [4] 核心坐标还原逻辑：扣除黑边，除以真实缩放比例 ===
+            cx = (cx - pad_w) / r;
+            cy = (cy - pad_h) / r;
+            w = w / r;
+            h = h / r;
 
-            // 保存入围者的数据
+            int left = std::round(cx - 0.5 * w);
+            int top = std::round(cy - 0.5 * h);
+            int width = std::round(w);
+            int height = std::round(h);
+
+            // === [5] 边界保护：防止框画到图片外面导致程序崩溃 ===
+            left = std::max(0, std::min(left, originalImageSize.width - 1));
+            top = std::max(0, std::min(top, originalImageSize.height - 1));
+            width = std::max(1, std::min(width, originalImageSize.width - left));
+            height = std::max(1, std::min(height, originalImageSize.height - top));
+
             boxes.push_back(cv::Rect(left, top, width, height));
             confidences.push_back(maxClassConf);
             classIds.push_back(maxClassId);
         }
     }
 
-    // 第二重过滤：执行 NMS (非极大值抑制)，剔除重叠的重复框
+    // === [6] 非极大值抑制 (NMS)，过滤重叠框 ===
     std::vector<int> nmsResult;
     cv::dnn::NMSBoxes(boxes, confidences, confThreshold, nmsThreshold, nmsResult);
 
-    // 把最终幸存下来的框打包输出
     std::vector<Detection> finalDetections;
     for (int idx : nmsResult) {
         Detection d;
@@ -156,6 +174,16 @@ std::vector<Detection> YoloDetector::process(cv::Mat& frame) {
     std::vector<Ort::Value> outputTensors = session->Run(
         Ort::RunOptions{ nullptr }, inputNames, &inputTensor, 1, outputNames, 1
     );
+
+    // ?????? 新增：获取并打印 ONNX 输出张量的真实形状
+    Ort::TensorTypeAndShapeInfo shapeInfo = outputTensors[0].GetTensorTypeAndShapeInfo();
+    std::vector<int64_t> outputShape = shapeInfo.GetShape();
+    std::cout << "【形状侦测】模型输出的张量维度为: ";
+    for (size_t i = 0; i < outputShape.size(); i++) {
+        std::cout << outputShape[i] << " ";
+    }
+    std::cout << std::endl;
+    // ?????? 结束
 
     float* outputData = outputTensors[0].GetTensorMutableData<float>();
 
