@@ -1,5 +1,6 @@
 // 推理逻辑实现
 #include "yolo_detector.h"
+#pragma execution_character_set("utf-8")
 
 // ---------------------------------------------------------
 // 1. 构造函数：加载模型

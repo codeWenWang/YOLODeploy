@@ -14,70 +14,136 @@
 // OpenCV 相关头文件
 #include <opencv2/opencv.hpp>
 
+#pragma execution_character_set("utf-8")
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , currentImagePath("")
+    , detector(nullptr) // 安全修复：初始化检测器为空指针
 {
     ui->setupUi(this);
+
+    // ================= [UI 美化核心代码] =================
+    QString proDarkStyle = R"(
+        /* 1. 主窗口：深邃的工业灰底色 */
+        QMainWindow { background-color: #1E1E2E; }
+
+        /* 2. 侧边栏文本和滑块 */
+        QLabel {
+            color: #CDD6F4;
+            font-family: "Microsoft YaHei";
+            font-size: 13px;
+            font-weight: bold;
+        }
+        QSlider::groove:horizontal {
+            border-radius: 4px;
+            height: 8px;
+            background: #313244;
+        }
+        QSlider::handle:horizontal {
+            background: #89B4FA;
+            width: 16px;
+            margin: -4px 0;
+            border-radius: 8px;
+        }
+
+        /* 3. 图片展示区：纯黑背景，取消边框，沉浸式看图 */
+        QGraphicsView {
+            background-color: #11111B;
+            border: 1px solid #313244;
+            border-radius: 8px;
+        }
+
+        /* 4. 专业级按钮操作区：科技蓝 */
+        QPushButton {
+            background-color: #89B4FA;
+            color: #11111B;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 15px;
+            font-family: "Microsoft YaHei";
+            font-size: 14px;
+            font-weight: bold;
+            min-height: 25px;
+        }
+        QPushButton:hover { background-color: #B4BEFE; }
+        QPushButton:pressed {
+            background-color: #74C7EC;
+            padding-top: 12px;
+        }
+
+        /* 5. 识别日志区：控制台风格代码框 */
+        QTextEdit {
+            background-color: #181825;
+            color: #A6E3A1; /* 极客绿文字 */
+            border: 1px solid #313244;
+            border-radius: 6px;
+            padding: 10px;
+            font-family: "Consolas", "Microsoft YaHei"; 
+            font-size: 13px;
+        }
+    )";
+    this->setStyleSheet(proDarkStyle);
+
+    ui->btnUpload->setCursor(Qt::PointingHandCursor);
+    ui->btnDetect->setCursor(Qt::PointingHandCursor);
+    ui->sliderConf->setCursor(Qt::PointingHandCursor);
+
+    // 新增：初始化滑块范围 1~100，默认值 50 (代表 0.5 置信度)
+    ui->sliderConf->setRange(1, 100);
+    ui->sliderConf->setValue(50);
+    // =====================================================
 
     // 1. 初始化场景，并将其绑定到 QGraphicsView 控件上
     scene = new QGraphicsScene(this);
     ui->graphicsView->setScene(scene);
 
-    // 2. 初始化你的专属 YOLO 检测器
-    // 注意：请将模型路径替换为你实际的绝对路径
+    // 2. 初始化专属 YOLO 检测器
     std::string modelPath = "E:/CourseProjectC/YOLODeploy/models/best.onnx";
     try {
         detector = new YoloDetector(modelPath);
     }
     catch (...) {
         QMessageBox::critical(this, "错误", "模型加载失败，请检查路径！");
-        // 实际开发中应更优雅地处理
     }
 
-    // 3. 连接按钮的点击信号到对应的槽函数
-    // 如果你在 .ui 文件中正确使用了 QPushButton 并设置了 objectName (如 btnUpload)，
-    // QT 的 on_objectName_signalName 机制会自动连接，这里可以省略显式 connect。
+    // 实时响应滑块拖动：只要滑块值改变，立马重新画框并更新日志！
+    connect(ui->sliderConf, &QSlider::valueChanged, this, [=]() {
+        if (!currentImagePath.isEmpty() && !lastResults.empty()) {
+            drawDetections();
+            updateInfo(lastResults);
+        }
+        });
 }
 
 MainWindow::~MainWindow()
 {
     delete ui;
     delete scene;
-    delete detector; // 别忘了释放检测器内存
+    delete detector;
 }
 
 void MainWindow::on_btnUpload_clicked()
 {
-    // 1. 弹出文件选择对话框
     QString path = QFileDialog::getOpenFileName(this, "选择测试图片", "", "Images (*.png *.jpg *.jpeg *.bmp)");
-
     if (path.isEmpty()) return;
 
-    // 2. 保存路径，并显示原图
     currentImagePath = path;
-    lastResults.clear(); // 清除上一次的结果
+    lastResults.clear();
     displayImage(currentImagePath);
-
-    // 3. 清空信息面板
     ui->textEditInfo->clear();
 }
 
 void MainWindow::displayImage(const QString& path)
 {
-    // 1. 清空场景中的所有元素（原图、旧框等）
     scene->clear();
-
-    // 2. 加载图片并添加到场景中
     QPixmap pixmap(path);
     if (pixmap.isNull()) {
         QMessageBox::warning(this, "警告", "图片加载失败！");
         return;
     }
     QGraphicsPixmapItem* pixmapItem = scene->addPixmap(pixmap);
-
-    // 3. 调整场景大小以适应图片，并让 GraphicsView 居中显示
     scene->setSceneRect(pixmap.rect());
     ui->graphicsView->fitInView(pixmapItem, Qt::KeepAspectRatio);
 }
@@ -89,19 +155,14 @@ void MainWindow::on_btnDetect_clicked()
         return;
     }
 
-    // 1. 使用 OpenCV 读取图片 (BGR 格式，用于推理)
-    // 新代码 (使用 toLocal8Bit 转换编码)兼容中文路径
     cv::Mat frame = cv::imread(currentImagePath.toLocal8Bit().constData());
     if (frame.empty()) {
         QMessageBox::warning(this, "警告", "OpenCV 读取图片失败！");
         return;
     }
 
-    // 2. 执行核心推理，获取结果
-    // 这里的 process 函数就是你昨天完善的、包含 1 6 8400 解析逻辑的那个！
     lastResults = detector->process(frame);
 
-    // 3. 更新界面：在图上画框，并更新信息面板
     drawDetections();
     updateInfo(lastResults);
 }
@@ -111,33 +172,47 @@ void MainWindow::drawDetections()
     // 1. 重新显示原图，覆盖旧框
     displayImage(currentImagePath);
 
-    // 2. 遍历检测结果，利用 QT 的图形项动态画框和写字
-    // 这里的坐标已经是 detector->process 返回的、基于原图分辨率的完美坐标了！
-    for (const auto& det : lastResults) {
-        // 定义颜色和字体（可以使用 QColor 和 QFont）
-        QColor boxColor(0, 255, 0); // 绿色
-        QFont labelFont("Arial", 12, QFont::Bold);
+    // 核心逻辑：获取当前滑块设定的阈值 (0.01 ~ 1.0)
+    float threshold = ui->sliderConf->value() / 100.0f;
 
-        // a. 画绿色目标框
+    for (const auto& det : lastResults) {
+        // 过滤拦截：置信度低于滑块值的，直接跳过不画！
+        if (det.confidence < threshold) {
+            continue;
+        }
+
+        // ================== [视觉强化升级] ==================
+        // 1. 颜色改为极限对比度的“亮青色/荧光青” (Cyan)
+        QColor boxColor(0, 255, 255);
+
+        // 2. 字体加倍, 从 11 改为 24，确保在高清图上清晰可见
+        QFont labelFont("Consolas", 24, QFont::Bold);
+
+        // 3. 边框加粗！从 3 改为 6
         QGraphicsRectItem* rectItem = scene->addRect(
             det.box.x, det.box.y, det.box.width, det.box.height,
-            QPen(boxColor, 3)); // 线宽为3
+            QPen(boxColor, 6));
 
-        // b. 准备标签文本
-        std::string labelStr = cv::format("Shared_Bike: %.2f", det.confidence);
+        // 修复 Z 层级：确保框永远在图片最上方 (Z值设为 1)
+        rectItem->setZValue(1);
 
-        // c. 画带有底板的文字标签
+        // ================== [标签渲染升级] ==================
+        std::string labelStr = cv::format("Bike: %.2f", det.confidence);
         QGraphicsTextItem* textItem = scene->addText(QString::fromStdString(labelStr), labelFont);
-        textItem->setDefaultTextColor(Qt::black); // 黑色文字
 
-        // 计算文字底板的位置
+        // 底板上的文字设为纯黑，对比度最高
+        textItem->setDefaultTextColor(QColor(0, 0, 0));
         textItem->setPos(det.box.x, det.box.y - textItem->boundingRect().height() - 5);
 
-        // d. 为文字添加一个绿色的底板Item
+        // 修复 Z 层级：确保文字在最顶层 (Z值设为 3)
+        textItem->setZValue(3);
+
+        // 画文字的底板背景
         QGraphicsRectItem* labelBgItem = scene->addRect(textItem->boundingRect(), QPen(Qt::NoPen), QBrush(boxColor));
         labelBgItem->setPos(textItem->pos());
-        // 调整层级，确保底板在文字下面，但在图片上面
-        labelBgItem->setZValue(textItem->zValue() - 1);
+
+        // 修复 Z 层级：确保底板在图片之上，文字之下 (Z值设为 2)
+        labelBgItem->setZValue(2);
     }
 }
 
@@ -145,16 +220,24 @@ void MainWindow::updateInfo(const std::vector<Detection>& results)
 {
     ui->textEditInfo->clear();
 
-    // 1. 基本信息：识别到的数量
-    QString info = QString("<h3>识别结果概要：</h3><p>检测到 <b>%1</b> 辆共享单车。</p>").arg(results.size());
+    // 同步获取阈值
+    float threshold = ui->sliderConf->value() / 100.0f;
+    int validCount = 0; // 记录真正过线的单车数量
 
-    // 2. 详细信息：遍历每个目标，展示置信度
-    info += "<h4>详细信息 (置信度)：</h4><ul>";
+    QString details = "<h4>详细信息 (置信度)：</h4><ul>";
     for (size_t i = 0; i < results.size(); ++i) {
-        info += QString("<li>目标 %1: %2%</li>").arg(i + 1).arg(results[i].confidence * 100, 0, 'f', 1);
-    }
-    info += "</ul>";
+        // 日志里也只显示过线的单车
+        if (results[i].confidence < threshold) continue;
 
-    // 3. 将富文本更新到信息面板
-    ui->textEditInfo->setHtml(info);
+        validCount++;
+        details += QString("<li>目标 %1: %2%</li>").arg(validCount).arg(results[i].confidence * 100, 0, 'f', 1);
+    }
+    details += "</ul>";
+
+    // 动态显示当前滑块阈值和最终数量
+    QString info = QString("<h3>识别结果概要：</h3><p>当前过滤阈值: <b>%1%</b><br>检测到 <b>%2</b> 辆共享单车。</p>")
+        .arg(ui->sliderConf->value())
+        .arg(validCount);
+
+    ui->textEditInfo->setHtml(info + details);
 }

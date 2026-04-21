@@ -5,7 +5,7 @@ int main(int argc, char* argv[]) {
     // 1. 初始化 QT 应用程序环境
     QApplication a(argc, argv);
 
-    // 2. 实例化你设计的主窗口
+    // 2. 实例化主窗口
     MainWindow w;
 
     // 3. 显示窗口
