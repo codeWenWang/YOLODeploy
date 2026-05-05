@@ -23,8 +23,8 @@
 
 ## 界面预览
 
-![项目展示截图](https://raw.githubusercontent.com/codeWenWang/YOLODepley/main/images/project-display.png)
-![主界面截图](https://raw.githubusercontent.com/codeWenWang/YOLODepley/main/images/main-window.png)
+![项目展示截图](images/project-display.png)
+![主界面截图](images/main-window.png)
 ![检测结果截图](images/detection-result.png)
 
 
