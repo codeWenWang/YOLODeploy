@@ -7,7 +7,7 @@
 #include <vector>
 #include <string>
 
-// 包含你之前打磨完美的 YOLO 检测器头文件
+// 包含YOLO 检测器头文件
 #include "yolo_detector.h"
 
 QT_BEGIN_NAMESPACE
@@ -32,7 +32,7 @@ private:
 
     // 核心组件
     QGraphicsScene* scene;         // 用于管理和显示图片、框的场景
-    YoloDetector* detector;         // 你的专属 YOLO 检测器实例
+    YoloDetector* detector;         // YOLO 检测器实例
 
     // 状态变量
     QString currentImagePath;      // 当前加载的图片路径
